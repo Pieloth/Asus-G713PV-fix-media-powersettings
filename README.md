@@ -29,15 +29,19 @@ This instability is triggered by `PowerSettings` subkeys created in the Windows 
 - **Idempotent & Fast:** Safe to run repeatedly. Checks complete in milliseconds with zero persistent RAM/CPU usage.
 - **Self-Elevating:** Automatically requests Administrator UAC elevation when launched manually.
 - **Self-Rotating Logs:** Keeps an execution history (`.log` / `.bak`) capped at 512 KB.
+- **Self-Update Location:** Automatically updates its path if moved to another folder.
 
 ---
 
 ## 🚀 Quick Start
 
 ### Option 1: Executable (`.exe`)
-1. Download the latest `fix_media_powersettings.exe` from the [Releases](../../releases) page.
+1. Download the latest `fix_media_powersettings.exe` from the [Releases](../../releases) page and place it in some folder.
 2. Right-click and **Run as Administrator** (or accept the UAC prompt).
-3. The script applies the fix immediately and configures the automated Task Scheduler entry.
+3. The script applies the fix immediately and configures the automated Task Scheduler entry. 
+
+> [!NOTE]
+> The Task Scheduler entry updates the .exe location automatically. Just rerun the .exe if moved to another folder.
 
 ### Option 2: Python Script (`.py`) - For interactive test usage
 **Requirements:** Python 3.8+ and `pywin32`.
@@ -49,6 +53,12 @@ python fix_media_powersettings.py /v
 
 > [!NOTE]
 > The optional `/v` flag opens a native Windows summary popup upon execution.
+
+**Compile:** .py to .exe
+
+```bash
+pyinstaller --onefile fix_media_powersettings.py
+```
 
 ---
 
