@@ -6,7 +6,7 @@ import winreg
 from datetime import datetime
 
 # Version Identifier
-VERSION = "1.13.0"
+VERSION = "1.14.0"
 
 # Maximum Log File Size in Bytes (512 KB)
 MAX_LOG_SIZE_BYTES = 512 * 1024
@@ -24,14 +24,18 @@ TARGET_DRIVERS = [
     "Realtek High Definition Audio"
 ]
 
-# Task Scheduler Configuration
-TASK_NAME = "fix_media_powersettings"
-TASK_DESCRIPTION = (
+# Task 1 Configuration (Media PowerSettings Cleanup)
+TASK1_NAME = "fix_media_powersettings"
+TASK1_DESCRIPTION = (
     "Compiled Python script to remove Media class PowerSettings subkeys in "
     "registry for nVidia, AMD, and Realtek drivers, due to ACPI malfunction in "
     "Asus BIOS leading to PC freeze in Modern Standby. "
     "Triggers on boot, Kernel-PnP driver binding (Event 410), and system wake (Event 1)."
 )
+
+# Task 2 Configuration (Winlogon Crash / NVIDIA Services Restarter)
+TASK2_NAME = "fix_winlogon_crash"
+TASK2_DESCRIPTION = "Fix the Winlogon crash with black logon screen issue by restarting nVidia services when it happens"
 
 # Base Search Path (Double backslashes prevent syntax warnings)
 CLASS_KEY_PATH = "SYSTEM\\CurrentControlSet\\Control\\Class"
@@ -114,9 +118,9 @@ def get_current_executable_path():
     else:
         return os.path.abspath(sys.argv[0])
 
-def create_or_update_scheduled_task_com():
+def create_or_update_scheduled_task1_com():
     """
-    Creates or updates the scheduled task using pywin32 (Schedule.Service COM API).
+    Creates or updates Task 1 (fix_media_powersettings) using pywin32 COM API.
     Configures triggers for Boot, Kernel-PnP Driver Binding (Event 410), and System Wake (Event 1).
     """
     if win32com is None:
@@ -124,7 +128,6 @@ def create_or_update_scheduled_task_com():
 
     current_exe = get_current_executable_path()
 
-    # Task Scheduler Constants
     TASK_TRIGGER_EVENT = 0
     TASK_TRIGGER_BOOT = 8
     TASK_ACTION_EXEC = 0
@@ -132,7 +135,6 @@ def create_or_update_scheduled_task_com():
     TASK_LOGON_SERVICE_ACCOUNT = 5
     TASK_RUNLEVEL_HIGHEST = 1
 
-    # XML Query listening specifically to Kernel-PnP Driver Binding (410) and System Wake (Power-Troubleshooter 1)
     EVENT_SUBSCRIPTION_XML = (
         '<QueryList>'
         '  <Query Id="0" Path="Microsoft-Windows-Kernel-PnP/Configuration">'
@@ -149,37 +151,28 @@ def create_or_update_scheduled_task_com():
         scheduler.Connect()
         root_folder = scheduler.GetFolder("\\")
 
-        # Check existing task command path
         existing_command = None
         try:
-            existing_task = root_folder.GetTask(TASK_NAME)
+            existing_task = root_folder.GetTask(TASK1_NAME)
             task_def = existing_task.Definition
             for action in task_def.Actions:
                 if action.Type == TASK_ACTION_EXEC:
                     existing_command = action.Path
                     break
         except Exception:
-            # Task does not exist yet
             pass
 
         if existing_command:
             if os.path.normpath(existing_command).lower() == os.path.normpath(current_exe).lower():
                 action_status = "Task exists and points to current path (Triggers updated to Kernel-PnP 410 & Wake Event 1)."
             else:
-                print(f"[*] Executable location change detected.")
-                print(f"    Previous path: {existing_command}")
-                print(f"    Current path:  {current_exe}")
                 action_status = f"Updated task path from '{existing_command}' to '{current_exe}'."
         else:
             action_status = f"Task created successfully for '{current_exe}'."
 
-        # Create new task definition
         task_def = scheduler.NewTask(0)
+        task_def.RegistrationInfo.Description = TASK1_DESCRIPTION
 
-        # 1. Registration Info
-        task_def.RegistrationInfo.Description = TASK_DESCRIPTION
-
-        # 2. Settings
         settings = task_def.Settings
         settings.Enabled = True
         settings.StartWhenAvailable = False
@@ -189,31 +182,26 @@ def create_or_update_scheduled_task_com():
         settings.ExecutionTimeLimit = "PT72H"
         settings.Priority = 7
 
-        # 3. Trigger 1: At Startup
         boot_trigger = task_def.Triggers.Create(TASK_TRIGGER_BOOT)
         boot_trigger.Enabled = True
 
-        # 4. Trigger 2: On Kernel-PnP Driver Binding (410) & System Wake (1)
         event_trigger = task_def.Triggers.Create(TASK_TRIGGER_EVENT)
         event_trigger.Enabled = True
         event_trigger.Subscription = EVENT_SUBSCRIPTION_XML
 
-        # 5. Action (Execute binary)
         action = task_def.Actions.Create(TASK_ACTION_EXEC)
         action.Path = current_exe
 
-        # 6. Principal (SYSTEM Account with Highest Privileges)
         principal = task_def.Principal
         principal.UserId = "S-1-5-18"  # Local SYSTEM account
         principal.RunLevel = TASK_RUNLEVEL_HIGHEST
 
-        # Register task (Create or overwrite)
         root_folder.RegisterTaskDefinition(
-            TASK_NAME,
+            TASK1_NAME,
             task_def,
             TASK_CREATE_OR_UPDATE,
-            None,  # User (None for SYSTEM)
-            None,  # Password
+            None,
+            None,
             TASK_LOGON_SERVICE_ACCOUNT
         )
 
@@ -221,6 +209,91 @@ def create_or_update_scheduled_task_com():
 
     except Exception as e:
         return f"Failed to configure task via COM API: {str(e)}"
+
+def create_or_update_scheduled_task2_com():
+    """
+    Creates or updates Task 2 (fix_winlogon_crash) using pywin32 COM API.
+    Triggers on Winlogon crash (Application Event 1002) to restart NVIDIA services.
+    """
+    if win32com is None:
+        return "Error: 'pywin32' library is not installed."
+
+    TASK_TRIGGER_EVENT = 0
+    TASK_ACTION_EXEC = 0
+    TASK_CREATE_OR_UPDATE = 6
+    TASK_LOGON_SERVICE_ACCOUNT = 5
+    TASK_RUNLEVEL_HIGHEST = 1
+
+    EVENT_SUBSCRIPTION_XML = (
+        '<QueryList>'
+        '  <Query Id="0" Path="Application">'
+        '    <Select Path="Application">'
+        '      *[System[Provider[@Name=\'Microsoft-Windows-Winlogon\'] and EventID=1002]]'
+        '    </Select>'
+        '  </Query>'
+        '</QueryList>'
+    )
+
+    CMD_ARGUMENTS = (
+        '/c "sc stop NVDisplay.ContainerLocalSystem & '
+        'sc stop NvContainerLocalSystem & '
+        'timeout /nobreak 5 & '
+        'sc start NVDisplay.ContainerLocalSystem & '
+        'sc start NvContainerLocalSystem"'
+    )
+
+    try:
+        scheduler = win32com.client.Dispatch("Schedule.Service")
+        scheduler.Connect()
+        root_folder = scheduler.GetFolder("\\")
+
+        task_exists = False
+        try:
+            root_folder.GetTask(TASK2_NAME)
+            task_exists = True
+        except Exception:
+            pass
+
+        task_def = scheduler.NewTask(0)
+        task_def.RegistrationInfo.Description = TASK2_DESCRIPTION
+
+        settings = task_def.Settings
+        settings.Enabled = True
+        settings.StartWhenAvailable = False
+        settings.DisallowStartIfOnBatteries = False
+        settings.StopIfGoingOnBatteries = False
+        settings.AllowHardTerminate = True
+        settings.ExecutionTimeLimit = "PT72H"
+        settings.Priority = 7
+
+        event_trigger = task_def.Triggers.Create(TASK_TRIGGER_EVENT)
+        event_trigger.Enabled = True
+        event_trigger.Subscription = EVENT_SUBSCRIPTION_XML
+
+        action = task_def.Actions.Create(TASK_ACTION_EXEC)
+        action.Path = "c:\\windows\\system32\\cmd.exe"
+        action.Arguments = CMD_ARGUMENTS
+
+        principal = task_def.Principal
+        principal.UserId = "S-1-5-18"  # Local SYSTEM account
+        principal.RunLevel = TASK_RUNLEVEL_HIGHEST
+
+        root_folder.RegisterTaskDefinition(
+            TASK2_NAME,
+            task_def,
+            TASK_CREATE_OR_UPDATE,
+            None,
+            None,
+            TASK_LOGON_SERVICE_ACCOUNT
+        )
+
+        if task_exists:
+            return "Task exists and was updated (Winlogon Event 1002 -> NVIDIA services restart)."
+        else:
+            return "Task created successfully (Winlogon Event 1002 -> NVIDIA services restart)."
+
+    except Exception as e:
+        return f"Failed to configure fix_winlogon_crash task: {str(e)}"
 
 def find_all_power_settings_paths():
     r"""
@@ -321,7 +394,7 @@ def delete_power_settings(power_settings_path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"Disable targeted audio device power restrictions to fix Modern Standby bugs (v{VERSION}).",
+        description=f"Disable targeted audio device power restrictions to fix Modern Standby bugs & setup winlogon crash fix (v{VERSION}).",
         prefix_chars='/-'
     )
     parser.add_argument('/v', action='store_true', help="Display a summary popup notification after processing.")
@@ -353,10 +426,17 @@ def main():
     popup_messages = []
 
     # --- PART 1: Task Scheduler Management (via pywin32 COM) ---
-    print("[*] Checking Windows Task Scheduler configuration via COM API...")
-    task_status = create_or_update_scheduled_task_com()
-    print(f"[+] Task Scheduler Status: {task_status}")
-    popup_messages.append(f"• Scheduled Task Status:\n  {task_status}")
+    print("[*] Checking Windows Task Scheduler configurations via COM API...")
+    
+    # Task 1: fix_media_powersettings
+    task1_status = create_or_update_scheduled_task1_com()
+    print(f"[+] Task 1 ({TASK1_NAME}): {task1_status}")
+    popup_messages.append(f"• Task 1 ({TASK1_NAME}):\n  {task1_status}")
+
+    # Task 2: fix_winlogon_crash
+    task2_status = create_or_update_scheduled_task2_com()
+    print(f"[+] Task 2 ({TASK2_NAME}): {task2_status}")
+    popup_messages.append(f"• Task 2 ({TASK2_NAME}):\n  {task2_status}")
 
     # --- PART 2: Registry Processing ---
     print("-" * 60)
