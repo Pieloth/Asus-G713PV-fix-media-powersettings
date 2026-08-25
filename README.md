@@ -15,7 +15,7 @@ This instability is triggered by `PowerSettings` subkeys created in the Windows 
 `fix_media_powersettings` is an autonomous, lightweight tool that:
 1. **Scans** `HKLM\SYSTEM\CurrentControlSet\Control\Class` for affected audio drivers.
 2. **Deletes** the problematic `PowerSettings` registry subkeys.
-3. **Registers a Windows Scheduled Task** (running under `SYSTEM`) to automatically maintain this clean state in the background without user intervention.
+3. **Registers Windows Scheduled Tasks** (running under `SYSTEM`) to automatically maintain this clean state in the background without user intervention.
 
 ---
 
@@ -26,6 +26,7 @@ This instability is triggered by `PowerSettings` subkeys created in the Windows 
   - **System Boot:** Ensures a clean state on startup.
   - **Kernel-PnP (Event 410):** Triggers instantly when a driver INF file is bound or updated.
   - **System Wake (Event 1):** Post-wake cleanup safeguard before the next standby transition.
+  - **Application Wake (Event 1002):** In case of a Winlogon.exe application crash, restart nVidia services
 - **Idempotent & Fast:** Safe to run repeatedly. Checks complete in milliseconds with zero persistent RAM/CPU usage.
 - **Self-Elevating:** Automatically requests Administrator UAC elevation when launched manually.
 - **Self-Rotating Logs:** Keeps an execution history (`.log` / `.bak`) capped at 512 KB.
@@ -79,10 +80,3 @@ The script inspects driver subkeys located under:
 This tool modifies specific driver power management registry keys to prevent hardware freezes. Tested and verified on Asus ROG hardware. Use at your own risk.
 
 ---
-
-> [!NOTE]
-> A Task Scheduler file, fix_winlogon_crash.xml, is also proposed\
-> It helps if experiencing "black logon" screen (No background image), and nVidia icons lost just after login in\
-> The reason comes from winlogon.exe crash while in modern standby sleep.\
-> Rare, but happens sometimes\
-> In Task Scheduler, import the fix_winlogon_crash.xml file and create the new task. It will detect winlogon.exe crashes, and restore nVidia icons automatically
