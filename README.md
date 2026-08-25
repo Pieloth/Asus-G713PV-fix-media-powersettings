@@ -55,7 +55,7 @@ python fix_media_powersettings.py /v
 > [!NOTE]
 > The optional `/v` flag opens a native Windows summary popup upon execution.
 
-**Compile:** .py to .exe
+**Compile and build:** .py to .exe
 
 ```bash
 pyinstaller --onefile fix_media_powersettings.py
