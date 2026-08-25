@@ -15,7 +15,7 @@ This instability is triggered by `PowerSettings` subkeys created in the Windows 
 `fix_media_powersettings` is an autonomous, lightweight tool that:
 1. **Scans** `HKLM\SYSTEM\CurrentControlSet\Control\Class` for affected audio drivers.
 2. **Deletes** the problematic `PowerSettings` registry subkeys.
-3. **Registers Windows Scheduled Tasks** (running under `SYSTEM`) to automatically maintain this clean state in the background without user intervention.
+3. **Registers Windows Scheduled Tasks** (running under `SYSTEM`) to automatically maintain a clean state in the background without user intervention.
 
 ---
 
