@@ -1,4 +1,4 @@
-# Asus Modern Standby Audio Fix (`fix_media_powersettings`)
+# Asus Modern Standby Fix (`fix_media_powersettings`)
 
 Automated background utility to fix Modern Standby (S0 Low Power Idle) system freezes and crashes on Asus laptops caused by audio driver power management subkeys.
 
