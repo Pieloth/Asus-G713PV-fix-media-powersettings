@@ -39,7 +39,7 @@ This instability is triggered by `PowerSettings` subkeys created in the Windows 
 ### Option 1: Executable (`.exe`)
 1. Download the latest `fix_media_powersettings.exe` from the [Releases](../../releases) page and place it in some folder.
 2. Right-click and **Run as Administrator** (or accept the UAC prompt).
-3. The script applies the fix immediately and configures the automated Task Scheduler entry. 
+3. The script applies the fix immediately and configures the automated Task Scheduler entries. 
 
 > [!NOTE]
 > The Task Scheduler entry updates the .exe location automatically. Just rerun the .exe if moved to another folder.
