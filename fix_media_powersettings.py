@@ -6,7 +6,7 @@ import winreg
 from datetime import datetime
 
 # Version Identifier
-VERSION = "1.14.0"
+VERSION = "1.15.0"
 
 # Maximum Log File Size in Bytes (512 KB)
 MAX_LOG_SIZE_BYTES = 512 * 1024
@@ -118,15 +118,27 @@ def get_current_executable_path():
     else:
         return os.path.abspath(sys.argv[0])
 
+def get_target_executable_path():
+    """
+    Returns the absolute path for Task Scheduler targeting.
+    Forces the extension to '.exe' even if executed from a '.py' script.
+    """
+    current_path = get_current_executable_path()
+    base_path, ext = os.path.splitext(current_path)
+    if ext.lower() in ['.py', '.pyw']:
+        return base_path + ".exe"
+    return current_path
+
 def create_or_update_scheduled_task1_com():
     """
     Creates or updates Task 1 (fix_media_powersettings) using pywin32 COM API.
+    Always targets the .exe file path to avoid file-association issues under SYSTEM account.
     Configures triggers for Boot, Kernel-PnP Driver Binding (Event 410), and System Wake (Event 1).
     """
     if win32com is None:
         return "Error: 'pywin32' library is not installed (run 'pip install pywin32')."
 
-    current_exe = get_current_executable_path()
+    target_exe = get_target_executable_path()
 
     TASK_TRIGGER_EVENT = 0
     TASK_TRIGGER_BOOT = 8
@@ -163,12 +175,12 @@ def create_or_update_scheduled_task1_com():
             pass
 
         if existing_command:
-            if os.path.normpath(existing_command).lower() == os.path.normpath(current_exe).lower():
-                action_status = "Task exists and points to current path (Triggers updated to Kernel-PnP 410 & Wake Event 1)."
+            if os.path.normpath(existing_command).lower() == os.path.normpath(target_exe).lower():
+                action_status = f"Task exists and points to target executable path ({target_exe})."
             else:
-                action_status = f"Updated task path from '{existing_command}' to '{current_exe}'."
+                action_status = f"Updated task path from '{existing_command}' to '{target_exe}'."
         else:
-            action_status = f"Task created successfully for '{current_exe}'."
+            action_status = f"Task created successfully pointing to '{target_exe}'."
 
         task_def = scheduler.NewTask(0)
         task_def.RegistrationInfo.Description = TASK1_DESCRIPTION
@@ -190,7 +202,7 @@ def create_or_update_scheduled_task1_com():
         event_trigger.Subscription = EVENT_SUBSCRIPTION_XML
 
         action = task_def.Actions.Create(TASK_ACTION_EXEC)
-        action.Path = current_exe
+        action.Path = target_exe
 
         principal = task_def.Principal
         principal.UserId = "S-1-5-18"  # Local SYSTEM account
