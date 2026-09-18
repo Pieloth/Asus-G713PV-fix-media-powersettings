@@ -50,8 +50,8 @@ This instability is triggered by default `PowerSettings` subkeys created in the 
 ### Option 2: Python Script (`.py`) - Interactive & Development Usage
 Requirements: Python 3.8+ and `pywin32`.
 
-pip install pywin32
-python fix_media_powersettings.py /v
+`pip install pywin32` \
+`python fix_media_powersettings.py /v`
 
 > [!NOTE]
 > - The optional `/v` flag opens a native Windows summary popup upon execution.\
@@ -59,7 +59,7 @@ python fix_media_powersettings.py /v
 
 Compile to Standalone Binary (`.exe`):
 
-pyinstaller --onefile fix_media_powersettings.py
+`pyinstaller --onefile fix_media_powersettings.py`
 
 ---
 
