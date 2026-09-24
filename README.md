@@ -21,7 +21,7 @@ This instability is triggered by default `PowerSettings` subkeys created in the 
 
 ## ✨ Key Features
 
-- **Optimal Registry Values:** Overrides problematic driver defaults with stable binary idle timeouts instead of deleting keys, ensuring compatibility with the latest driver releases (e.g., NVIDIA HD Audio 1.4.6.3+).
+- **Optimal Registry Values:** Overrides problematic driver defaults with stable binary idle timeouts instead of deleting keys, ensuring compatibility with the latest driver releases (e.g., NVIDIA HD Audio 1.4.5.7+).
 - **GPU TDR Hardening:** Automatically creates and enforces `TdrDelay = 8` and `TdrDdiDelay = 8` (DWORD) to prevent display driver timeouts during power state transitions.
 - **100% Autonomous:** Automatically restores optimal registry values as soon as Windows Update or GPU/Audio installers reset them.
 - **Smart Event-Driven Triggers:**
