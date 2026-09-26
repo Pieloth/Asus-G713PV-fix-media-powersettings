@@ -6,7 +6,7 @@ import winreg
 from datetime import datetime
 
 # Version Identifier
-VERSION = "1.16.0"
+VERSION = "1.16.1"
 
 # Maximum Log File Size in Bytes (512 KB)
 MAX_LOG_SIZE_BYTES = 512 * 1024
@@ -27,10 +27,10 @@ TARGET_DRIVERS = [
 # PowerSettings Target Binary Values (REG_BINARY - 4 Bytes)
 # ConservationIdleTime : 0x3C = 60 seconds
 # IdlePowerState        : 0x03 = D3 Power State
-# PerformanceIdleTime   : 0x00 = Disabled under AC Power
+# PerformanceIdleTime   : 0x5000 = more than 5 hours under AC Power
 TARGET_CONSERVATION_IDLE_TIME = b'\x3C\x00\x00\x00'
 TARGET_IDLE_POWER_STATE = b'\x03\x00\x00\x00'
-TARGET_PERFORMANCE_IDLE_TIME = b'\x00\x00\x00\x00'
+TARGET_PERFORMANCE_IDLE_TIME = b'\x00\x50\x00\x00'
 
 # GraphicsDrivers TDR Configuration (REG_DWORD)
 GRAPHICS_DRIVERS_KEY_PATH = "SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers"
@@ -458,7 +458,7 @@ def process_power_settings_keys(power_settings_path):
 
 
 def process_tdr_registry_keys():
-    """
+    r"""
     Ensures TdrDelay and TdrDdiDelay exist under HKLM\SYSTEM\CurrentControlSet\Control\Class\GraphicsDrivers
     and are configured to at least the target threshold values (REG_DWORD).
     """
