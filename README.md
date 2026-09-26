@@ -76,7 +76,7 @@ Targeted Audio Drivers (Case-Insensitive):
 Applied Binary Values (`REG_BINARY`):
 - `ConservationIdleTime`: `3C 00 00 00` (60 seconds idle time)
 - `IdlePowerState`: `03 00 00 00` (D3 Power State)
-- `PerformanceIdleTime`: `00 40 00 00` (Several hours on AC power)
+- `PerformanceIdleTime`: `00 50 00 00` (5+ hours on AC power)
 
 ### 2. GraphicsDrivers TDR Delays
 Target path: `HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers`
