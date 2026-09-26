@@ -27,10 +27,10 @@ TARGET_DRIVERS = [
 # PowerSettings Target Binary Values (REG_BINARY - 4 Bytes)
 # ConservationIdleTime : 0x3C = 60 seconds
 # IdlePowerState        : 0x03 = D3 Power State
-# PerformanceIdleTime   : 0x4000 = more than 04:30 under AC Power
+# PerformanceIdleTime   : 0x5000 = more than 5 hours under AC Power
 TARGET_CONSERVATION_IDLE_TIME = b'\x3C\x00\x00\x00'
 TARGET_IDLE_POWER_STATE = b'\x03\x00\x00\x00'
-TARGET_PERFORMANCE_IDLE_TIME = b'\x00\x40\x00\x00'
+TARGET_PERFORMANCE_IDLE_TIME = b'\x00\x50\x00\x00'
 
 # GraphicsDrivers TDR Configuration (REG_DWORD)
 GRAPHICS_DRIVERS_KEY_PATH = "SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers"
