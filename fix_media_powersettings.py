@@ -6,10 +6,13 @@ import winreg
 from datetime import datetime
 
 # Version Identifier
-VERSION = "1.16.0"
+VERSION = "1.17.0"
 
 # Maximum Log File Size in Bytes (512 KB)
 MAX_LOG_SIZE_BYTES = 512 * 1024
+
+# Target system log path for Winlogon / Userenv debugging
+GPSVC_LOG_PATH = r"C:\Windows\debug\UserMode\gpsvc.log"
 
 # Requires: pip install pywin32
 try:
@@ -27,22 +30,26 @@ TARGET_DRIVERS = [
 # PowerSettings Target Binary Values (REG_BINARY - 4 Bytes)
 # ConservationIdleTime : 0x3C = 60 seconds
 # IdlePowerState        : 0x03 = D3 Power State
-# PerformanceIdleTime   : 0x00 = Disabled under AC Power
+# PerformanceIdleTime   : 0x00005000 (00 50 00 00 in Little-Endian) = ~5h45 idle timeout under AC Power
 TARGET_CONSERVATION_IDLE_TIME = b'\x3C\x00\x00\x00'
 TARGET_IDLE_POWER_STATE = b'\x03\x00\x00\x00'
-TARGET_PERFORMANCE_IDLE_TIME = b'\x00\x00\x00\x00'
+TARGET_PERFORMANCE_IDLE_TIME = b'\x00\x50\x00\x00'
 
 # GraphicsDrivers TDR Configuration (REG_DWORD)
-GRAPHICS_DRIVERS_KEY_PATH = "SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers"
+GRAPHICS_DRIVERS_KEY_PATH = r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers"
 TARGET_TDR_DELAY = 8
 TARGET_TDR_DDI_DELAY = 8
 
-# Task 1 Configuration (Media PowerSettings & TDR Optimization)
+# Winlogon Registry Path & Debug Configuration
+WINLOGON_KEY_PATH = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+TARGET_USERENV_DEBUG_LEVEL = 0x30002
+
+# Task 1 Configuration (Media PowerSettings & System Optimizations)
 TASK1_NAME = "fix_media_powersettings"
 TASK1_DESCRIPTION = (
-    "Compiled Python script to adjust Media class PowerSettings subkeys and "
-    "configure TDR registry keys to prevent Modern Standby system freezes "
-    "due to ACPI BIOS bugs on Asus laptops. "
+    "Compiled Python script to adjust Media class PowerSettings subkeys, "
+    "configure TDR registry keys, and enable Winlogon userenv logging "
+    "to prevent Modern Standby system freezes on Asus laptops. "
     "Triggers on boot, Kernel-PnP driver binding (Event 410), and system wake (Event 1)."
 )
 
@@ -51,7 +58,7 @@ TASK2_NAME = "fix_winlogon_crash"
 TASK2_DESCRIPTION = "Fix the Winlogon crash with black logon screen issue by restarting nVidia services when it happens"
 
 # Base Registry Path for Media Devices
-CLASS_KEY_PATH = "SYSTEM\\CurrentControlSet\\Control\\Class"
+CLASS_KEY_PATH = r"SYSTEM\CurrentControlSet\Control\Class"
 
 
 class TeeLogger:
@@ -150,6 +157,28 @@ def bytes_to_hex_str(data):
     if isinstance(data, int):
         return f"0x{data:08X} (DWORD)"
     return " ".join(f"{b:02X}" for b in data)
+
+
+def rotate_gpsvc_log(max_bytes=MAX_LOG_SIZE_BYTES):
+    r"""
+    Rotates C:\Windows\debug\UserMode\gpsvc.log to gpsvc.bak if it exceeds max_bytes.
+    Returns a string summary of the action taken.
+    """
+    if not os.path.exists(GPSVC_LOG_PATH):
+        return f"File does not exist yet ({GPSVC_LOG_PATH})."
+
+    try:
+        file_size = os.path.getsize(GPSVC_LOG_PATH)
+        if file_size >= max_bytes:
+            backup_path = os.path.splitext(GPSVC_LOG_PATH)[0] + ".bak"
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+            os.rename(GPSVC_LOG_PATH, backup_path)
+            return f"Rotated log ({file_size // 1024} KB >= {max_bytes // 1024} KB) -> gpsvc.bak"
+        else:
+            return f"Log size within limit ({file_size // 1024} KB < {max_bytes // 1024} KB)."
+    except Exception as e:
+        return f"Failed to rotate log: {e}"
 
 
 def create_or_update_scheduled_task1_com():
@@ -458,8 +487,8 @@ def process_power_settings_keys(power_settings_path):
 
 
 def process_tdr_registry_keys():
-    """
-    Ensures TdrDelay and TdrDdiDelay exist under HKLM\SYSTEM\CurrentControlSet\Control\Class\GraphicsDrivers
+    r"""
+    Ensures TdrDelay and TdrDdiDelay exist under HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers
     and are configured to at least the target threshold values (REG_DWORD).
     """
     tdr_targets = {
@@ -488,7 +517,6 @@ def process_tdr_registry_keys():
             current_value = None
             value_type = winreg.REG_DWORD
 
-        # Modify if absent, wrong type, or lower than target threshold
         if current_value is None or value_type != winreg.REG_DWORD or current_value < target_val:
             winreg.SetValueEx(gfx_key, key_name, 0, winreg.REG_DWORD, target_val)
             
@@ -503,9 +531,69 @@ def process_tdr_registry_keys():
     return changes_made
 
 
+def process_winlogon_registry_keys():
+    r"""
+    Ensures GPExtensions subkey exists under HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+    and creates/configures UserenvDebugLevel (DWORD 0x30002) to prevent/log Winlogon process crashes.
+    """
+    changes_made = []
+
+    try:
+        winlogon_key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            WINLOGON_KEY_PATH,
+            0,
+            winreg.KEY_ALL_ACCESS | winreg.KEY_WOW64_64KEY
+        )
+    except OSError as e:
+        msg = f"Failed to open Winlogon key: {e}"
+        print(f"[-] {msg}")
+        return [msg]
+
+    # Step 1: Create GPExtensions subkey if it doesn't exist
+    try:
+        gp_key = winreg.CreateKeyEx(
+            winlogon_key,
+            "GPExtensions",
+            0,
+            winreg.KEY_ALL_ACCESS | winreg.KEY_WOW64_64KEY
+        )
+        gp_key.Close()
+        print(r"[+] Verified/Created subkey: Winlogon\GPExtensions")
+    except OSError as e:
+        msg = f"Failed to create GPExtensions subkey: {e}"
+        print(f"[-] {msg}")
+        changes_made.append(msg)
+
+    # Step 2: Ensure UserenvDebugLevel DWORD is set to 0x30002
+    try:
+        current_value, value_type = winreg.QueryValueEx(winlogon_key, "UserenvDebugLevel")
+    except OSError:
+        current_value = None
+        value_type = winreg.REG_DWORD
+
+    if current_value != TARGET_USERENV_DEBUG_LEVEL or value_type != winreg.REG_DWORD:
+        winreg.SetValueEx(
+            winlogon_key,
+            "UserenvDebugLevel",
+            0,
+            winreg.REG_DWORD,
+            TARGET_USERENV_DEBUG_LEVEL
+        )
+        old_str = f"0x{current_value:08X}" if current_value is not None else "Absent"
+        change_str = f"UserenvDebugLevel: {old_str} -> 0x{TARGET_USERENV_DEBUG_LEVEL:08X}"
+        changes_made.append(change_str)
+        print(f"[+] Updated Winlogon key: {change_str}")
+    else:
+        print(f"[-] Unchanged Winlogon key: UserenvDebugLevel is already set to 0x{TARGET_USERENV_DEBUG_LEVEL:08X}")
+
+    winlogon_key.Close()
+    return changes_made
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description=f"Configure audio driver PowerSettings and GPU TDR delays to fix Modern Standby freeze issues (v{VERSION}).",
+        description=f"Configure audio driver PowerSettings, GPU TDR delays, and Winlogon logging to fix Modern Standby freeze issues (v{VERSION}).",
         prefix_chars='/-'
     )
     parser.add_argument('/v', action='store_true', help="Display a summary popup notification after processing.")
@@ -579,7 +667,24 @@ def main():
         popup_messages.append("• Graphics Drivers TDR:\n  TdrDelay and TdrDdiDelay are already optimal.")
     print("-" * 60)
 
-    # --- PART 4: Summary Popup Display ---
+    # --- PART 4: Winlogon & Userenv Debug Registry Processing ---
+    print("[*] Processing Winlogon & Userenv Debug registry configuration...")
+    winlogon_changes = process_winlogon_registry_keys()
+    if winlogon_changes:
+        msg_details = "\n  ".join(winlogon_changes)
+        popup_messages.append(f"• Winlogon Debug (Updated):\n  {msg_details}")
+    else:
+        popup_messages.append("• Winlogon Debug:\n  GPExtensions and UserenvDebugLevel are already optimal.")
+    print("-" * 60)
+
+    # --- PART 5: GPSVC Log Maintenance ---
+    print("[*] Checking UserMode gpsvc.log size and rotation...")
+    gpsvc_status = rotate_gpsvc_log(max_bytes=MAX_LOG_SIZE_BYTES)
+    print(f"[+] gpsvc.log: {gpsvc_status}")
+    popup_messages.append(f"• gpsvc.log Maintenance:\n  {gpsvc_status}")
+    print("-" * 60)
+
+    # --- PART 6: Summary Popup Display ---
     if args.v:
         summary_message = f"Execution Status Report (v{VERSION}):\n\n" + "\n\n".join(popup_messages)
         show_popup(f"Modern Standby Registry Fixer v{VERSION}", summary_message)
