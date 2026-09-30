@@ -85,6 +85,13 @@ Applied DWORD Values (`REG_DWORD`):
 - `TdrDelay`: `8` (Timeout delay in seconds before TDR triggers)
 - `TdrDdiDelay`: `8` (Timeout delay for OS thread execution)
 
+### 3. Winlogon Debugging Configuration:
+Target path: `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon`
+
+Subkeys:
+- `GPExtensions` (Created if absent)
+- `UserenvDebugLevel`: `0x00030002` (`REG_DWORD`)
+
 ---
 
 ## ⚠️ Disclaimer
