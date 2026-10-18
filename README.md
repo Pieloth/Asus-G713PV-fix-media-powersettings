@@ -92,6 +92,25 @@ Subkeys:
 - `GPExtensions` (Created if absent)
 - `UserenvDebugLevel`: `0x00030002` (`REG_DWORD`)
 
+### 4. Repair Windows Spotlight that makes Winlogon.exe to crash
+When Windows Spotlight changes background image in Standby Sleep, Winlogon.exe might crash
+In this situation, simply **Repair Windows Spotlight** using this procedure:
+- Step A: Temporarily disable the feature
+  1. Open Settings > Personalization > Lock screen.
+  2. Next to Personalize your lock screen, switch from Windows spotlight to Picture.
+- Step B: Clear the corrupted cache and settings
+  1. In Windows Explorer, navigate to this path, or press Win + R, copy-paste the following path, and hit Enter:
+  `%USERPROFILE%\AppData\Local\Packages\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy\LocalState\Assets`
+  2. Delete all files inside this folder (these are the temporary downloaded images).
+  3. Again In Windows Explorer, navigate to this path, or press Win + R, copy-paste this second path, and hit Enter:
+  `%USERPROFILE%\AppData\Local\Packages\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy\Settings`
+  4. Inside this folder, rename the files settings.dat and roaming.lock to settings.dat.bak and roaming.lock.bak.
+- Step C: Re-register the component via PowerShell
+  1. Right-click the Start menu and open Windows Terminal (Admin) or PowerShell (Admin).
+  2. Copy-paste the following command on a single line and press Enter:
+  `Get-AppxPackage -allusers Microsoft.Windows.ContentDeliveryManager | Foreach {Add-AppxPackage -DisableDevelopmentMode -Register "$($_.InstallLocation)\AppXManifest.xml"}`
+  3. Restart computer, then go back to your Settings to re-enable Windows spotlight.
+
 ---
 
 ## ⚠️ Disclaimer
