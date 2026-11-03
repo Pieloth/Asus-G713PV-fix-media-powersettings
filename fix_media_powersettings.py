@@ -3,10 +3,11 @@ import sys
 import ctypes
 import argparse
 import winreg
+import subprocess
 from datetime import datetime
 
 # Version Identifier
-VERSION = "1.17.0"
+VERSION = "1.18.0"
 
 # Maximum Log File Size in Bytes (512 KB)
 MAX_LOG_SIZE_BYTES = 512 * 1024
@@ -44,12 +45,18 @@ TARGET_TDR_DDI_DELAY = 8
 WINLOGON_KEY_PATH = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
 TARGET_USERENV_DEBUG_LEVEL = 0x30002
 
+# Windows Error Reporting LocalDumps Configuration for Winlogon.exe
+WER_LOCAL_DUMPS_KEY_PATH = r"SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\winlogon.exe"
+TARGET_DUMP_COUNT = 5
+TARGET_DUMP_TYPE = 2
+
 # Task 1 Configuration (Media PowerSettings & System Optimizations)
 TASK1_NAME = "fix_media_powersettings"
 TASK1_DESCRIPTION = (
     "Compiled Python script to adjust Media class PowerSettings subkeys, "
-    "configure TDR registry keys, and enable Winlogon userenv logging "
-    "to prevent Modern Standby system freezes on Asus laptops. "
+    "configure TDR registry keys, enable Winlogon userenv logging, "
+    "configure WER LocalDumps for winlogon.exe, disable GameInput service, "
+    "and optimize hibernation file size to prevent Modern Standby system freezes on Asus laptops. "
     "Triggers on boot, Kernel-PnP driver binding (Event 410), and system wake (Event 1)."
 )
 
@@ -278,7 +285,7 @@ def create_or_update_scheduled_task1_com():
 def create_or_update_scheduled_task2_com():
     """
     Creates or updates Task 2 (fix_winlogon_crash) using pywin32 COM API.
-    Triggers on Winlogon crash (Application Event 1002) to restart NVIDIA services.
+    Triggers on Winlogon crash (Application Event 1002) to restart NVIDIA services with a 10s delay.
     """
     if win32com is None:
         return "Error: 'pywin32' library is not installed."
@@ -302,7 +309,7 @@ def create_or_update_scheduled_task2_com():
     CMD_ARGUMENTS = (
         '/c "sc stop NVDisplay.ContainerLocalSystem & '
         'sc stop NvContainerLocalSystem & '
-        'timeout /nobreak 5 & '
+        'timeout /nobreak 10 & '
         'sc start NVDisplay.ContainerLocalSystem & '
         'sc start NvContainerLocalSystem"'
     )
@@ -353,9 +360,9 @@ def create_or_update_scheduled_task2_com():
         )
 
         if task_exists:
-            return "Task exists and was updated (Winlogon Event 1002 -> NVIDIA services restart)."
+            return "Task exists and was updated (Winlogon Event 1002 -> NVIDIA services restart with 10s delay)."
         else:
-            return "Task created successfully (Winlogon Event 1002 -> NVIDIA services restart)."
+            return "Task created successfully (Winlogon Event 1002 -> NVIDIA services restart with 10s delay)."
 
     except Exception as e:
         return f"Failed to configure fix_winlogon_crash task: {str(e)}"
@@ -533,11 +540,12 @@ def process_tdr_registry_keys():
 
 def process_winlogon_registry_keys():
     r"""
-    Ensures GPExtensions subkey exists under HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
-    and creates/configures UserenvDebugLevel (DWORD 0x30002) to prevent/log Winlogon process crashes.
+    Ensures GPExtensions subkey exists under HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon,
+    configures UserenvDebugLevel (DWORD 0x30002), and sets up winlogon.exe LocalDumps for WER.
     """
     changes_made = []
 
+    # 1. Winlogon GPExtensions & UserenvDebugLevel
     try:
         winlogon_key = winreg.OpenKey(
             winreg.HKEY_LOCAL_MACHINE,
@@ -545,55 +553,180 @@ def process_winlogon_registry_keys():
             0,
             winreg.KEY_ALL_ACCESS | winreg.KEY_WOW64_64KEY
         )
-    except OSError as e:
-        msg = f"Failed to open Winlogon key: {e}"
-        print(f"[-] {msg}")
-        return [msg]
+        
+        try:
+            gp_key = winreg.CreateKeyEx(
+                winlogon_key,
+                "GPExtensions",
+                0,
+                winreg.KEY_ALL_ACCESS | winreg.KEY_WOW64_64KEY
+            )
+            gp_key.Close()
+            print(r"[+] Verified/Created subkey: Winlogon\GPExtensions")
+        except OSError as e:
+            msg = f"Failed to create GPExtensions subkey: {e}"
+            print(f"[-] {msg}")
+            changes_made.append(msg)
 
-    # Step 1: Create GPExtensions subkey if it doesn't exist
-    try:
-        gp_key = winreg.CreateKeyEx(
-            winlogon_key,
-            "GPExtensions",
-            0,
-            winreg.KEY_ALL_ACCESS | winreg.KEY_WOW64_64KEY
-        )
-        gp_key.Close()
-        print(r"[+] Verified/Created subkey: Winlogon\GPExtensions")
+        try:
+            current_val, val_type = winreg.QueryValueEx(winlogon_key, "UserenvDebugLevel")
+        except OSError:
+            current_val = None
+            val_type = winreg.REG_DWORD
+
+        if current_val != TARGET_USERENV_DEBUG_LEVEL or val_type != winreg.REG_DWORD:
+            winreg.SetValueEx(winlogon_key, "UserenvDebugLevel", 0, winreg.REG_DWORD, TARGET_USERENV_DEBUG_LEVEL)
+            old_str = f"0x{current_val:08X}" if current_val is not None else "Absent"
+            change_str = f"UserenvDebugLevel: {old_str} -> 0x{TARGET_USERENV_DEBUG_LEVEL:08X}"
+            changes_made.append(change_str)
+            print(f"[+] Updated Winlogon key: {change_str}")
+        else:
+            print(f"[-] Unchanged Winlogon key: UserenvDebugLevel is already set to 0x{TARGET_USERENV_DEBUG_LEVEL:08X}")
+
+        winlogon_key.Close()
     except OSError as e:
-        msg = f"Failed to create GPExtensions subkey: {e}"
+        msg = f"Failed to process Winlogon registry path: {e}"
         print(f"[-] {msg}")
         changes_made.append(msg)
 
-    # Step 2: Ensure UserenvDebugLevel DWORD is set to 0x30002
+    # 2. Windows Error Reporting LocalDumps for winlogon.exe
     try:
-        current_value, value_type = winreg.QueryValueEx(winlogon_key, "UserenvDebugLevel")
-    except OSError:
-        current_value = None
-        value_type = winreg.REG_DWORD
-
-    if current_value != TARGET_USERENV_DEBUG_LEVEL or value_type != winreg.REG_DWORD:
-        winreg.SetValueEx(
-            winlogon_key,
-            "UserenvDebugLevel",
+        wer_key = winreg.CreateKeyEx(
+            winreg.HKEY_LOCAL_MACHINE,
+            WER_LOCAL_DUMPS_KEY_PATH,
             0,
-            winreg.REG_DWORD,
-            TARGET_USERENV_DEBUG_LEVEL
+            winreg.KEY_ALL_ACCESS | winreg.KEY_WOW64_64KEY
         )
-        old_str = f"0x{current_value:08X}" if current_value is not None else "Absent"
-        change_str = f"UserenvDebugLevel: {old_str} -> 0x{TARGET_USERENV_DEBUG_LEVEL:08X}"
-        changes_made.append(change_str)
-        print(f"[+] Updated Winlogon key: {change_str}")
-    else:
-        print(f"[-] Unchanged Winlogon key: UserenvDebugLevel is already set to 0x{TARGET_USERENV_DEBUG_LEVEL:08X}")
 
-    winlogon_key.Close()
+        # DumpCount (REG_DWORD)
+        try:
+            cur_count, c_type = winreg.QueryValueEx(wer_key, "DumpCount")
+        except OSError:
+            cur_count = None
+            c_type = winreg.REG_DWORD
+
+        if cur_count != TARGET_DUMP_COUNT or c_type != winreg.REG_DWORD:
+            winreg.SetValueEx(wer_key, "DumpCount", 0, winreg.REG_DWORD, TARGET_DUMP_COUNT)
+            c_change = f"winlogon.exe DumpCount: {cur_count} -> {TARGET_DUMP_COUNT}"
+            changes_made.append(c_change)
+            print(f"[+] Updated WER dump key: {c_change}")
+        else:
+            print(f"[-] Unchanged WER dump key: DumpCount is already {TARGET_DUMP_COUNT}")
+
+        # DumpType (REG_DWORD)
+        try:
+            cur_type, t_type = winreg.QueryValueEx(wer_key, "DumpType")
+        except OSError:
+            cur_type = None
+            t_type = winreg.REG_DWORD
+
+        if cur_type != TARGET_DUMP_TYPE or t_type != winreg.REG_DWORD:
+            winreg.SetValueEx(wer_key, "DumpType", 0, winreg.REG_DWORD, TARGET_DUMP_TYPE)
+            t_change = f"winlogon.exe DumpType: {cur_type} -> {TARGET_DUMP_TYPE}"
+            changes_made.append(t_change)
+            print(f"[+] Updated WER dump key: {t_change}")
+        else:
+            print(f"[-] Unchanged WER dump key: DumpType is already {TARGET_DUMP_TYPE}")
+
+        wer_key.Close()
+    except OSError as e:
+        msg = f"Failed to configure WER LocalDumps for winlogon.exe: {e}"
+        print(f"[-] {msg}")
+        changes_made.append(msg)
+
+    return changes_made
+
+
+def disable_gameinput_service():
+    """
+    Disables and stops the GameInput Redist Service using subprocess.run().
+    """
+    changes_made = []
+    print("[*] Checking GameInput Redist Service configuration...")
+    
+    try:
+        # Configurer le service en mode désactivé
+        config_result = subprocess.run(
+            ["sc", "config", "GameInputRedistService", "start=", "disabled"],
+            capture_output=True,
+            text=True,
+            shell=True
+        )
+        
+        # Stopper le service
+        stop_result = subprocess.run(
+            ["net", "stop", "GameInputRedistService"],
+            capture_output=True,
+            text=True,
+            shell=True
+        )
+
+        if config_result.returncode == 0 or "1060" in config_result.stdout or "1060" in config_result.stderr:
+            msg = "GameInputRedistService successfully configured to disabled (or not present)."
+            print(f"[+] {msg}")
+            changes_made.append(msg)
+        else:
+            msg = f"Failed to configure GameInputRedistService: {config_result.stdout.strip()}"
+            print(f"[-] {msg}")
+            changes_made.append(msg)
+
+        if stop_result.returncode == 0 or "service is not started" in stop_result.stdout.lower() or "service is not started" in stop_result.stderr.lower() or "1060" in stop_result.stdout:
+            print("[+] GameInputRedistService is stopped.")
+        else:
+            print(f"[-] Note on stopping GameInputRedistService: {stop_result.stdout.strip()}")
+
+    except Exception as e:
+        msg = f"Error executing subprocess for GameInputRedistService: {e}"
+        print(f"[-] {msg}")
+        changes_made.append(msg)
+
+    return changes_made
+
+
+def configure_hibernation_file():
+    """
+    Configures powercfg hibernation file type to full and size to 70% of RAM.
+    Indicates in logs that a reboot is required if changes are applied.
+    """
+    changes_made = []
+    print("[*] Checking hibernation settings (powercfg)...")
+
+    reboot_required = False
+    try:
+        # Exécuter powercfg pour définir le type sur full
+        res_type = subprocess.run(
+            ["powercfg", "/h", "/type", "full"],
+            capture_output=True,
+            text=True,
+            shell=True
+        )
+        # Exécuter powercfg pour définir la taille à 70%
+        res_size = subprocess.run(
+            ["powercfg", "/h", "/size", "70"],
+            capture_output=True,
+            text=True,
+            shell=True
+        )
+
+        if res_type.returncode == 0 and res_size.returncode == 0:
+            msg = "Hibernation file successfully configured to Full type and 70% size. [!] REBOOT REQUIRED for changes to take full effect."
+            print(f"[+] {msg}")
+            changes_made.append(msg)
+        else:
+            # Si l'hibernation n'est pas activée ou non supportée, powercfg peut renvoyer un code d'erreur
+            msg = "Powercfg hibernation configuration executed (check if hibernation is enabled on this system)."
+            print(f"[-] {msg}")
+    except Exception as e:
+        msg = f"Failed to execute powercfg hibernation adjustments: {e}"
+        print(f"[-] {msg}")
+        changes_made.append(msg)
+
     return changes_made
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"Configure audio driver PowerSettings, GPU TDR delays, and Winlogon logging to fix Modern Standby freeze issues (v{VERSION}).",
+        description=f"Configure audio driver PowerSettings, GPU TDR delays, Winlogon logs, WER LocalDumps, GameInput service, and hiberfile size (v{VERSION}).",
         prefix_chars='/-'
     )
     parser.add_argument('/v', action='store_true', help="Display a summary popup notification after processing.")
@@ -667,24 +800,36 @@ def main():
         popup_messages.append("• Graphics Drivers TDR:\n  TdrDelay and TdrDdiDelay are already optimal.")
     print("-" * 60)
 
-    # --- PART 4: Winlogon & Userenv Debug Registry Processing ---
-    print("[*] Processing Winlogon & Userenv Debug registry configuration...")
+    # --- PART 4: Winlogon & Userenv Debug Registry Processing (incl. WER LocalDumps) ---
+    print("[*] Processing Winlogon, Userenv Debug & WER LocalDumps registry configuration...")
     winlogon_changes = process_winlogon_registry_keys()
     if winlogon_changes:
         msg_details = "\n  ".join(winlogon_changes)
-        popup_messages.append(f"• Winlogon Debug (Updated):\n  {msg_details}")
+        popup_messages.append(f"• Winlogon & WER Dumps (Updated):\n  {msg_details}")
     else:
-        popup_messages.append("• Winlogon Debug:\n  GPExtensions and UserenvDebugLevel are already optimal.")
+        popup_messages.append("• Winlogon & WER Dumps:\n  Configurations are already optimal.")
     print("-" * 60)
 
-    # --- PART 5: GPSVC Log Maintenance ---
+    # --- PART 5: GameInput Redist Service Disabling ---
+    gameinput_changes = disable_gameinput_service()
+    if gameinput_changes:
+        popup_messages.append(f"• GameInput Service:\n  " + "\n  ".join(gameinput_changes))
+    print("-" * 60)
+
+    # --- PART 6: Hibernation File Size Optimization ---
+    hiber_changes = configure_hibernation_file()
+    if hiber_changes:
+        popup_messages.append(f"• Hibernation Optimization:\n  " + "\n  ".join(hiber_changes))
+    print("-" * 60)
+
+    # --- PART 7: GPSVC Log Maintenance ---
     print("[*] Checking UserMode gpsvc.log size and rotation...")
     gpsvc_status = rotate_gpsvc_log(max_bytes=MAX_LOG_SIZE_BYTES)
     print(f"[+] gpsvc.log: {gpsvc_status}")
     popup_messages.append(f"• gpsvc.log Maintenance:\n  {gpsvc_status}")
     print("-" * 60)
 
-    # --- PART 6: Summary Popup Display ---
+    # --- PART 8: Summary Popup Display ---
     if args.v:
         summary_message = f"Execution Status Report (v{VERSION}):\n\n" + "\n\n".join(popup_messages)
         show_popup(f"Modern Standby Registry Fixer v{VERSION}", summary_message)
