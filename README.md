@@ -112,3 +112,9 @@ Target path: `HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers`
 ## ⚠️ Disclaimer
 
 This tool modifies specific driver power management, graphics recovery, and system service configurations to prevent hardware freezes. Tested and verified on Asus ROG hardware. Use at your own risk.
+
+---
+
+## 🎉 Happy Modern Standby 😊
+
+<img width="640" height="360" alt="ezgif-608d3a39ba95bd6d" src="https://github.com/user-attachments/assets/aef21ee0-cdff-4318-8f4d-a6ea4dc3d287" />
