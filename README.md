@@ -2,6 +2,8 @@
 
 Automated background utility to fix Modern Standby (S0 Low Power Idle) system freezes, black screens, and crashes on Asus laptops caused by audio driver power management settings, GPU TDR timeout limits, and Winlogon process instability.
 
+[![Watch a one-minute video tour of asus-g713pv-fix-media-powersettings](https://gitdiagram.com/video-badge.svg)](https://gitdiagram.com/pieloth/asus-g713pv-fix-media-powersettings/video)
+
 ---
 
 ## 🚨 The Problem
