@@ -28,7 +28,7 @@ This instability is triggered by default `PowerSettings` subkeys created in the 
 
 ## ✨ Key Features
 
-- **Optimal Registry Values:** Overrides problematic audio driver defaults with stable binary idle timeouts instead of deleting keys, ensuring compatibility with modern driver releases (e.g., NVIDIA HD Audio 1.4.6.3+).
+- **Optimal Registry Values:** Overrides problematic audio driver defaults with stable binary idle timeouts, ensuring compatibility with modern driver releases (e.g., NVIDIA HD Audio 1.4.6.3+).
 - **GPU TDR Hardening:** Automatically creates and enforces `TdrDelay = 8` and `TdrDdiDelay = 8` (DWORD) to prevent display driver timeouts during power state transitions.
 - **Winlogon Crash Mitigation & WER Dumps:** Enables verbose `Userenv` debug logs and sets up Windows Error Reporting crash dumps for `winlogon.exe`.
 - **GameInput Service Neutralization:** Automatically disables and stops `GameInputRedistService` via system commands.
