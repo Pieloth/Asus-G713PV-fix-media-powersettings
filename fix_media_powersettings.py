@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime
 
 # Version Identifier
-VERSION = "1.18.0"
+VERSION = "1.18.1"
 
 # Maximum Log File Size in Bytes (512 KB)
 MAX_LOG_SIZE_BYTES = 512 * 1024
@@ -639,49 +639,70 @@ def process_winlogon_registry_keys():
 
 def disable_gameinput_service():
     """
-    Disables and stops the GameInput Redist Service using subprocess.run().
+    Disables and stops the GameInput Redist Service using registry modification 
+    and numeric return codes from 'sc' command, ensuring full language independence.
     """
     changes_made = []
     print("[*] Checking GameInput Redist Service configuration...")
     
+    service_name = "GameInputRedistService"
+    registry_path = rf"SYSTEM\CurrentControlSet\Services\{service_name}"
+    
+    # 1. Disable via Registry (Start = 4 means Disabled, language-independent)
     try:
-        # Configurer le service en mode désactivé
-        config_result = subprocess.run(
-            ["sc", "config", "GameInputRedistService", "start=", "disabled"],
+        reg_key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            registry_path,
+            0,
+            winreg.KEY_ALL_ACCESS | winreg.KEY_WOW64_64KEY
+        )
+        current_start, _ = winreg.QueryValueEx(reg_key, "Start")
+        
+        if current_start != 4:
+            winreg.SetValueEx(reg_key, "Start", 0, winreg.REG_DWORD, 4)
+            msg = f"GameInputRedistService startup type changed from {current_start} to Disabled (4)."
+            print(f"[+] {msg}")
+            changes_made.append(msg)
+        else:
+            print("[-] GameInputRedistService startup type is already Disabled (4).")
+        
+        reg_key.Close()
+    except FileNotFoundError:
+        print("[-] GameInputRedistService registry key not found (service absent on this system).")
+        return changes_made
+    except Exception as e:
+        msg = f"Failed to configure GameInputRedistService via registry: {e}"
+        print(f"[-] {msg}")
+        changes_made.append(msg)
+
+    # 2. Stop the service using universal numeric return codes from 'sc stop'
+    # Windows Error Codes:
+    # 0    -> Success
+    # 1062 -> ERROR_SERVICE_NOT_ACTIVE (Service is already stopped)
+    # 1060 -> ERROR_SERVICE_DOES_NOT_EXIST
+    try:
+        stop_result = subprocess.run(
+            ["sc", "stop", service_name],
             capture_output=True,
             text=True,
             shell=True
         )
         
-        # Stopper le service
-        stop_result = subprocess.run(
-            ["net", "stop", "GameInputRedistService"],
-            capture_output=True,
-            text=True,
-            shell=True
-        )
-
-        if config_result.returncode == 0 or "1060" in config_result.stdout or "1060" in config_result.stderr:
-            msg = "GameInputRedistService successfully configured to disabled (or not present)."
+        if stop_result.returncode == 0:
+            msg = "GameInputRedistService successfully stopped."
             print(f"[+] {msg}")
             changes_made.append(msg)
+        elif stop_result.returncode in (1062, 1060):
+            print("[-] GameInputRedistService is already stopped or not active.")
         else:
-            msg = f"Failed to configure GameInputRedistService: {config_result.stdout.strip()}"
-            print(f"[-] {msg}")
-            changes_made.append(msg)
-
-        if stop_result.returncode == 0 or "service is not started" in stop_result.stdout.lower() or "service is not started" in stop_result.stderr.lower() or "1060" in stop_result.stdout:
-            print("[+] GameInputRedistService is stopped.")
-        else:
-            print(f"[-] Note on stopping GameInputRedistService: {stop_result.stdout.strip()}")
-
+            print(f"[-] Note on stopping GameInputRedistService (Exit code: {stop_result.returncode})")
+            
     except Exception as e:
-        msg = f"Error executing subprocess for GameInputRedistService: {e}"
+        msg = f"Error executing stop command for GameInputRedistService: {e}"
         print(f"[-] {msg}")
         changes_made.append(msg)
 
     return changes_made
-
 
 def configure_hibernation_file():
     """
