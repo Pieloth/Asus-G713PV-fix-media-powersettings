@@ -8,9 +8,9 @@ Automated background utility to fix Modern Standby (S0 Low Power Idle) system fr
 
 ## 🚨 The Problem
 
-On several Asus laptops (such as the ROG Strix G713PV series and related models), an ACPI/BIOS implementation bug causes system freezes, black screens, or hard crashes during Modern Standby (S0) sleep transitions.
+On several Asus laptops (such as the ROG Strix G713PV series and related models), ACPI/BIOS interoperability with Modern Standby causes system freezes, black screens, or hard crashes during Modern Standby (S0) sleep transitions.
 
-This instability is triggered by default `PowerSettings` subkeys created in the Windows Registry by high-definition audio drivers (or internal driver fallback defaults when those keys are absent), leading to ACPI driver state mismatches. Additionally:
+This instability is triggered by default `PowerSettings` subkeys created in the Windows Registry by high-definition audio drivers, leading to ACPI driver state mismatches. Additionally:
 - Strict default GPU TDR (Timeout Detection and Recovery) delays trigger display driver resets during power state shifts.
 - Intermittent `winlogon.exe` / `userinit.exe` application crashes cause black screens upon logon or sleep exit.
 - Background services like `GameInputRedistService` or inadequate hibernation file sizing (`hiberfile.sys`) contribute to sleep resume freezes.
